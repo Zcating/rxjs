@@ -1,11 +1,11 @@
-import { OperatorFunction, ObservedValueOf } from '../../internal/types';
+import { OperatorFunction, ObservedValueOf, ObservableInput } from '../types';
 import { mergeMap } from './mergeMap';
-import { ObservableInput } from '../types';
+import { isFunction } from '../util/isFunction';
 
 /* tslint:disable:max-line-length */
-export function mergeMapTo<O extends ObservableInput<any>>(innerObservable: O, concurrent?: number): OperatorFunction<any, ObservedValueOf<O>>;
+export function mergeMapTo<O extends ObservableInput<unknown>>(innerObservable: O, concurrent?: number): OperatorFunction<any, ObservedValueOf<O>>;
 /** @deprecated */
-export function mergeMapTo<T, R, O extends ObservableInput<any>>(innerObservable: O, resultSelector: (outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R, concurrent?: number): OperatorFunction<T, R>;
+export function mergeMapTo<T, R, O extends ObservableInput<unknown>>(innerObservable: O, resultSelector: (outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R, concurrent?: number): OperatorFunction<T, R>;
 /* tslint:enable:max-line-length */
 
 /**
@@ -45,14 +45,13 @@ export function mergeMapTo<T, R, O extends ObservableInput<any>>(innerObservable
  * Observables being subscribed to concurrently.
  * @return {Observable} An Observable that emits items from the given
  * `innerObservable`
- * @name mergeMapTo
  */
-export function mergeMapTo<T, R, O extends ObservableInput<any>>(
+export function mergeMapTo<T, R, O extends ObservableInput<unknown>>(
   innerObservable: O,
   resultSelector?: ((outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R) | number,
   concurrent: number = Infinity
 ): OperatorFunction<T, ObservedValueOf<O>|R> {
-  if (typeof resultSelector === 'function') {
+  if (isFunction(resultSelector)) {
     return mergeMap(() => innerObservable, resultSelector, concurrent);
   }
   if (typeof resultSelector === 'number') {

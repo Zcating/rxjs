@@ -1,3 +1,4 @@
+/** @prettier */
 import { Observable } from '../Observable';
 import { ColdObservable } from './ColdObservable';
 import { HotObservable } from './HotObservable';
@@ -5,14 +6,14 @@ import { TestMessage } from './TestMessage';
 import { SubscriptionLog } from './SubscriptionLog';
 import { Subscription } from '../Subscription';
 import { VirtualTimeScheduler, VirtualAction } from '../scheduler/VirtualTimeScheduler';
-import { AsyncScheduler } from '../scheduler/AsyncScheduler';
 import { ObservableNotification } from '../types';
-import { COMPLETE_NOTIFICATION, errorNotification, nextNotification } from '../Notification';
+import { COMPLETE_NOTIFICATION, errorNotification, nextNotification } from '../NotificationFactories';
 import { dateTimestampProvider } from '../scheduler/dateTimestampProvider';
 import { performanceTimestampProvider } from '../scheduler/performanceTimestampProvider';
 import { animationFrameProvider } from '../scheduler/animationFrameProvider';
 import { immediateProvider } from '../scheduler/immediateProvider';
 import { intervalProvider } from '../scheduler/intervalProvider';
+import { timeoutProvider } from '../scheduler/timeoutProvider';
 
 const defaultMaxFrame: number = 750;
 
@@ -74,7 +75,7 @@ export class TestScheduler extends VirtualTimeScheduler {
   }
 
   createTime(marbles: string): number {
-    const indexOf = marbles.trim().indexOf('|');
+    const indexOf = this.runMode ? marbles.trim().indexOf('|') : marbles.indexOf('|');
     if (indexOf === -1) {
       throw new Error('marble diagram for time should have a completion marker "|"');
     }
@@ -114,42 +115,44 @@ export class TestScheduler extends VirtualTimeScheduler {
     return subject;
   }
 
-  private materializeInnerObservable(observable: Observable<any>,
-                                     outerFrame: number): TestMessage[] {
+  private materializeInnerObservable(observable: Observable<any>, outerFrame: number): TestMessage[] {
     const messages: TestMessage[] = [];
-    observable.subscribe((value) => {
-      messages.push({ frame: this.frame - outerFrame, notification: nextNotification(value) });
-    }, (error) => {
-      messages.push({ frame: this.frame - outerFrame, notification: errorNotification(error) });
-    }, () => {
-      messages.push({ frame: this.frame - outerFrame, notification: COMPLETE_NOTIFICATION });
-    });
+    observable.subscribe(
+      (value) => {
+        messages.push({ frame: this.frame - outerFrame, notification: nextNotification(value) });
+      },
+      (error) => {
+        messages.push({ frame: this.frame - outerFrame, notification: errorNotification(error) });
+      },
+      () => {
+        messages.push({ frame: this.frame - outerFrame, notification: COMPLETE_NOTIFICATION });
+      }
+    );
     return messages;
   }
 
-  expectObservable(observable: Observable<any>,
-                   subscriptionMarbles: string | null = null): ({ toBe: observableToBeFn }) {
+  expectObservable<T>(observable: Observable<T>, subscriptionMarbles: string | null = null) {
     const actual: TestMessage[] = [];
     const flushTest: FlushableTest = { actual, ready: false };
     const subscriptionParsed = TestScheduler.parseMarblesAsSubscriptions(subscriptionMarbles, this.runMode);
-    const subscriptionFrame = subscriptionParsed.subscribedFrame === Infinity ?
-      0 : subscriptionParsed.subscribedFrame;
+    const subscriptionFrame = subscriptionParsed.subscribedFrame === Infinity ? 0 : subscriptionParsed.subscribedFrame;
     const unsubscriptionFrame = subscriptionParsed.unsubscribedFrame;
     let subscription: Subscription;
 
     this.schedule(() => {
-      subscription = observable.subscribe(x => {
-        let value = x;
-        // Support Observable-of-Observables
-        if (x instanceof Observable) {
-          value = this.materializeInnerObservable(value, this.frame);
+      subscription = observable.subscribe(
+        (x) => {
+          // Support Observable-of-Observables
+          const value = x instanceof Observable ? this.materializeInnerObservable(x, this.frame) : x;
+          actual.push({ frame: this.frame, notification: nextNotification(value) });
+        },
+        (error) => {
+          actual.push({ frame: this.frame, notification: errorNotification(error) });
+        },
+        () => {
+          actual.push({ frame: this.frame, notification: COMPLETE_NOTIFICATION });
         }
-        actual.push({ frame: this.frame, notification: nextNotification(value) });
-      }, (error) => {
-        actual.push({ frame: this.frame, notification: errorNotification(error) });
-      }, () => {
-        actual.push({ frame: this.frame, notification: COMPLETE_NOTIFICATION });
-      });
+      );
     }, subscriptionFrame);
 
     if (unsubscriptionFrame !== Infinity) {
@@ -163,22 +166,41 @@ export class TestScheduler extends VirtualTimeScheduler {
       toBe(marbles: string, values?: any, errorValue?: any) {
         flushTest.ready = true;
         flushTest.expected = TestScheduler.parseMarbles(marbles, values, errorValue, true, runMode);
-      }
+      },
+      toEqual: (other: Observable<T>) => {
+        flushTest.ready = true;
+        flushTest.expected = [];
+        this.schedule(() => {
+          subscription = other.subscribe(
+            (x) => {
+              // Support Observable-of-Observables
+              const value = x instanceof Observable ? this.materializeInnerObservable(x, this.frame) : x;
+              flushTest.expected!.push({ frame: this.frame, notification: nextNotification(value) });
+            },
+            (error) => {
+              flushTest.expected!.push({ frame: this.frame, notification: errorNotification(error) });
+            },
+            () => {
+              flushTest.expected!.push({ frame: this.frame, notification: COMPLETE_NOTIFICATION });
+            }
+          );
+        }, subscriptionFrame);
+      },
     };
   }
 
-  expectSubscriptions(actualSubscriptionLogs: SubscriptionLog[]): ({ toBe: subscriptionLogsToBeFn }) {
+  expectSubscriptions(actualSubscriptionLogs: SubscriptionLog[]): { toBe: subscriptionLogsToBeFn } {
     const flushTest: FlushableTest = { actual: actualSubscriptionLogs, ready: false };
     this.flushTests.push(flushTest);
     const { runMode } = this;
     return {
-      toBe(marbles: string | string[]) {
-        const marblesArray: string[] = (typeof marbles === 'string') ? [marbles] : marbles;
+      toBe(marblesOrMarblesArray: string | string[]) {
+        const marblesArray: string[] = typeof marblesOrMarblesArray === 'string' ? [marblesOrMarblesArray] : marblesOrMarblesArray;
         flushTest.ready = true;
-        flushTest.expected = marblesArray.map(marbles =>
-          TestScheduler.parseMarblesAsSubscriptions(marbles, runMode)
-        ).filter(marbles => marbles.subscribedFrame !== Infinity);
-      }
+        flushTest.expected = marblesArray
+          .map((marbles) => TestScheduler.parseMarblesAsSubscriptions(marbles, runMode))
+          .filter((marbles) => marbles.subscribedFrame !== Infinity);
+      },
     };
   }
 
@@ -190,7 +212,7 @@ export class TestScheduler extends VirtualTimeScheduler {
 
     super.flush();
 
-    this.flushTests = this.flushTests.filter(test => {
+    this.flushTests = this.flushTests.filter((test) => {
       if (test.ready) {
         this.assertDeepEqual(test.actual, test.expected);
         return false;
@@ -204,7 +226,10 @@ export class TestScheduler extends VirtualTimeScheduler {
     if (typeof marbles !== 'string') {
       return new SubscriptionLog(Infinity);
     }
-    const len = marbles.length;
+    // Spreading the marbles into an array leverages ES2015's support for emoji
+    // characters when iterating strings.
+    const characters = [...marbles];
+    const len = characters.length;
     let groupStart = -1;
     let subscriptionFrame = Infinity;
     let unsubscriptionFrame = Infinity;
@@ -215,7 +240,7 @@ export class TestScheduler extends VirtualTimeScheduler {
       const advanceFrameBy = (count: number) => {
         nextFrame += count * this.frameTimeFactor;
       };
-      const c = marbles[i];
+      const c = characters[i];
       switch (c) {
         case ' ':
           // Whitespace no longer advances time
@@ -236,26 +261,24 @@ export class TestScheduler extends VirtualTimeScheduler {
           break;
         case '^':
           if (subscriptionFrame !== Infinity) {
-            throw new Error('found a second subscription point \'^\' in a ' +
-              'subscription marble diagram. There can only be one.');
+            throw new Error("found a second subscription point '^' in a " + 'subscription marble diagram. There can only be one.');
           }
           subscriptionFrame = groupStart > -1 ? groupStart : frame;
           advanceFrameBy(1);
           break;
         case '!':
           if (unsubscriptionFrame !== Infinity) {
-            throw new Error('found a second subscription point \'^\' in a ' +
-              'subscription marble diagram. There can only be one.');
+            throw new Error("found a second unsubscription point '!' in a " + 'subscription marble diagram. There can only be one.');
           }
           unsubscriptionFrame = groupStart > -1 ? groupStart : frame;
           break;
         default:
           // time progression syntax
           if (runMode && c.match(/^[0-9]$/)) {
-            // Time progression must be preceeded by at least one space
+            // Time progression must be preceded by at least one space
             // if it's not at the beginning of the diagram
-            if (i === 0 || marbles[i - 1] === ' ') {
-              const buffer = marbles.slice(i);
+            if (i === 0 || characters[i - 1] === ' ') {
+              const buffer = characters.slice(i).join('');
               const match = buffer.match(/^([0-9]+(?:\.[0-9]+)?)(ms|s|m) /);
               if (match) {
                 i += match[0].length - 1;
@@ -283,8 +306,7 @@ export class TestScheduler extends VirtualTimeScheduler {
             }
           }
 
-          throw new Error('there can only be \'^\' and \'!\' markers in a ' +
-            'subscription marble diagram. Found instead \'' + c + '\'.');
+          throw new Error("there can only be '^' and '!' markers in a " + "subscription marble diagram. Found instead '" + c + "'.");
       }
 
       frame = nextFrame;
@@ -298,28 +320,33 @@ export class TestScheduler extends VirtualTimeScheduler {
   }
 
   /** @nocollapse */
-  static parseMarbles(marbles: string,
-                      values?: any,
-                      errorValue?: any,
-                      materializeInnerObservables: boolean = false,
-                      runMode = false): TestMessage[] {
+  static parseMarbles(
+    marbles: string,
+    values?: any,
+    errorValue?: any,
+    materializeInnerObservables: boolean = false,
+    runMode = false
+  ): TestMessage[] {
     if (marbles.indexOf('!') !== -1) {
-      throw new Error('conventional marble diagrams cannot have the ' +
-        'unsubscription marker "!"');
+      throw new Error('conventional marble diagrams cannot have the ' + 'unsubscription marker "!"');
     }
-    const len = marbles.length;
+    // Spreading the marbles into an array leverages ES2015's support for emoji
+    // characters when iterating strings.
+    const characters = [...marbles];
+    const len = characters.length;
     const testMessages: TestMessage[] = [];
     const subIndex = runMode ? marbles.replace(/^[ ]+/, '').indexOf('^') : marbles.indexOf('^');
-    let frame = subIndex === -1 ? 0 : (subIndex * -this.frameTimeFactor);
-    const getValue = typeof values !== 'object' ?
-      (x: any) => x :
-      (x: any) => {
-        // Support Observable-of-Observables
-        if (materializeInnerObservables && values[x] instanceof ColdObservable) {
-          return values[x].messages;
-        }
-        return values[x];
-      };
+    let frame = subIndex === -1 ? 0 : subIndex * -this.frameTimeFactor;
+    const getValue =
+      typeof values !== 'object'
+        ? (x: any) => x
+        : (x: any) => {
+            // Support Observable-of-Observables
+            if (materializeInnerObservables && values[x] instanceof ColdObservable) {
+              return values[x].messages;
+            }
+            return values[x];
+          };
     let groupStart = -1;
 
     for (let i = 0; i < len; i++) {
@@ -329,7 +356,7 @@ export class TestScheduler extends VirtualTimeScheduler {
       };
 
       let notification: ObservableNotification<any> | undefined;
-      const c = marbles[i];
+      const c = characters[i];
       switch (c) {
         case ' ':
           // Whitespace no longer advances time
@@ -364,8 +391,8 @@ export class TestScheduler extends VirtualTimeScheduler {
           if (runMode && c.match(/^[0-9]$/)) {
             // Time progression must be preceded by at least one space
             // if it's not at the beginning of the diagram
-            if (i === 0 || marbles[i - 1] === ' ') {
-              const buffer = marbles.slice(i);
+            if (i === 0 || characters[i - 1] === ' ') {
+              const buffer = characters.slice(i).join('');
               const match = buffer.match(/^([0-9]+(?:\.[0-9]+)?)(ms|s|m) /);
               if (match) {
                 i += match[0].length - 1;
@@ -427,7 +454,7 @@ export class TestScheduler extends VirtualTimeScheduler {
     const delegate = {
       requestAnimationFrame(callback: FrameRequestCallback) {
         if (!map) {
-          throw new Error("animate() was not called within run()");
+          throw new Error('animate() was not called within run()');
         }
         const handle = ++lastHandle;
         map.set(handle, callback);
@@ -435,10 +462,10 @@ export class TestScheduler extends VirtualTimeScheduler {
       },
       cancelAnimationFrame(handle: number) {
         if (!map) {
-          throw new Error("animate() was not called within run()");
+          throw new Error('animate() was not called within run()');
         }
         map.delete(handle);
-      }
+      },
     };
 
     const animate = (marbles: string) => {
@@ -446,7 +473,7 @@ export class TestScheduler extends VirtualTimeScheduler {
         throw new Error('animate() must not be called more than once within run()');
       }
       if (/[|#]/.test(marbles)) {
-        throw new Error('animate() must not complete or error')
+        throw new Error('animate() must not complete or error');
       }
       map = new Map<number, FrameRequestCallback>();
       const messages = TestScheduler.parseMarbles(marbles, undefined, undefined, undefined, true);
@@ -483,48 +510,70 @@ export class TestScheduler extends VirtualTimeScheduler {
     // animate run helper.
 
     let lastHandle = 0;
-    let map = new Map<number, {
-      due: number;
-      duration: number;
-      handle: number;
-      handler: () => void;
-      subscription: Subscription;
-      type: 'immediate' | 'interval';
-    }>();
+    const scheduleLookup = new Map<
+      number,
+      {
+        due: number;
+        duration: number;
+        handle: number;
+        handler: () => void;
+        subscription: Subscription;
+        type: 'immediate' | 'interval' | 'timeout';
+      }
+    >();
 
     const run = () => {
       // Whenever a scheduled run is executed, it must run a single immediate
       // or interval action - with immediate actions being prioritized over
-      // interval actions. 
+      // interval and timeout actions.
       const now = this.now();
-      const values = Array.from(map.values());
-      const due = values.filter(({ due }) => due <= now);
-      const immediates = due.filter(({ type }) => type === 'immediate');
-      if (immediates.length > 0) {
-        const { handle, handler } = immediates[0];
-        map.delete(handle);
+      const scheduledRecords = Array.from(scheduleLookup.values());
+      const scheduledRecordsDue = scheduledRecords.filter(({ due }) => due <= now);
+      const dueImmediates = scheduledRecordsDue.filter(({ type }) => type === 'immediate');
+      if (dueImmediates.length > 0) {
+        const { handle, handler } = dueImmediates[0];
+        scheduleLookup.delete(handle);
         handler();
         return;
       }
-      const intervals = due.filter(({ type }) => type === 'interval');
-      if (intervals.length > 0) {
-        const interval = intervals[0];
-        const { duration, handler } = interval;
-        interval.due = now + duration;
+      const dueIntervals = scheduledRecordsDue.filter(({ type }) => type === 'interval');
+      if (dueIntervals.length > 0) {
+        const firstDueInterval = dueIntervals[0];
+        const { duration, handler } = firstDueInterval;
+        firstDueInterval.due = now + duration;
         // The interval delegate must behave like setInterval, so run needs to
         // be rescheduled. This will continue until the clearInterval delegate
         // unsubscribes and deletes the handle from the map.
-        interval.subscription = this.schedule(run, duration);
+        firstDueInterval.subscription = this.schedule(run, duration);
+        handler();
+        return;
+      }
+      const dueTimeouts = scheduledRecordsDue.filter(({ type }) => type === 'timeout');
+      if (dueTimeouts.length > 0) {
+        const { handle, handler } = dueTimeouts[0];
+        scheduleLookup.delete(handle);
         handler();
         return;
       }
       throw new Error('Expected a due immediate or interval');
     };
 
+    // The following objects are the delegates that replace conventional
+    // runtime implementations with TestScheduler implementations.
+    //
+    // The immediate delegate is depended upon by the asapScheduler.
+    //
+    // The interval delegate is depended upon by the asyncScheduler.
+    //
+    // The timeout delegate is not depended upon by any scheduler, but it's
+    // included here because the onUnhandledError and onStoppedNotification
+    // configuration points use setTimeout to avoid producer interference. It's
+    // inclusion allows for the testing of these configuration points.
+
     const immediate = {
       setImmediate: (handler: () => void) => {
         const handle = ++lastHandle;
-        map.set(handle, {
+        scheduleLookup.set(handle, {
           due: this.now(),
           duration: 0,
           handle,
@@ -535,18 +584,18 @@ export class TestScheduler extends VirtualTimeScheduler {
         return handle;
       },
       clearImmediate: (handle: number) => {
-        const value = map.get(handle);
+        const value = scheduleLookup.get(handle);
         if (value) {
           value.subscription.unsubscribe();
-          map.delete(handle);
+          scheduleLookup.delete(handle);
         }
-      }
+      },
     };
 
     const interval = {
       setInterval: (handler: () => void, duration = 0) => {
         const handle = ++lastHandle;
-        map.set(handle, {
+        scheduleLookup.set(handle, {
           due: this.now() + duration,
           duration,
           handle,
@@ -557,15 +606,37 @@ export class TestScheduler extends VirtualTimeScheduler {
         return handle;
       },
       clearInterval: (handle: number) => {
-        const value = map.get(handle);
+        const value = scheduleLookup.get(handle);
         if (value) {
           value.subscription.unsubscribe();
-          map.delete(handle);
+          scheduleLookup.delete(handle);
         }
-      }
+      },
     };
 
-    return { immediate, interval };
+    const timeout = {
+      setTimeout: (handler: () => void, duration = 0) => {
+        const handle = ++lastHandle;
+        scheduleLookup.set(handle, {
+          due: this.now() + duration,
+          duration,
+          handle,
+          handler,
+          subscription: this.schedule(run, duration),
+          type: 'timeout',
+        });
+        return handle;
+      },
+      clearTimeout: (handle: number) => {
+        const value = scheduleLookup.get(handle);
+        if (value) {
+          value.subscription.unsubscribe();
+          scheduleLookup.delete(handle);
+        }
+      },
+    };
+
+    return { immediate, interval, timeout };
   }
 
   /**
@@ -591,6 +662,7 @@ export class TestScheduler extends VirtualTimeScheduler {
     dateTimestampProvider.delegate = this;
     immediateProvider.delegate = delegates.immediate;
     intervalProvider.delegate = delegates.interval;
+    timeoutProvider.delegate = delegates.timeout;
     performanceTimestampProvider.delegate = this;
 
     const helpers: RunHelpers = {
@@ -614,6 +686,7 @@ export class TestScheduler extends VirtualTimeScheduler {
       dateTimestampProvider.delegate = undefined;
       immediateProvider.delegate = undefined;
       intervalProvider.delegate = undefined;
+      timeoutProvider.delegate = undefined;
       performanceTimestampProvider.delegate = undefined;
     }
   }

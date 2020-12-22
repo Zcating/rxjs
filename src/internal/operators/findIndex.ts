@@ -1,7 +1,16 @@
+/** @prettier */
 import { Observable } from '../Observable';
-import { FindValueOperator } from '../operators/find';
-import { OperatorFunction } from '../types';
-import { lift } from '../util/lift';
+import { Falsy, OperatorFunction } from '../types';
+import { operate } from '../util/lift';
+import { createFind } from './find';
+
+export function findIndex<T>(predicate: (value: T, index: number, source: Observable<T>) => false, thisArg?: any): OperatorFunction<T, -1>;
+export function findIndex<T>(predicate: BooleanConstructor, thisArg?: any): OperatorFunction<T, T extends Falsy ? -1 : number>;
+export function findIndex<T>(
+  predicate: (value: T, index: number, source: Observable<T>) => boolean,
+  thisArg?: any
+): OperatorFunction<T, number>;
+
 /**
  * Emits only the index of the first value emitted by the source Observable that
  * meets some condition.
@@ -39,9 +48,10 @@ import { lift } from '../util/lift';
  * in the `predicate` function.
  * @return {Observable} An Observable of the index of the first item that
  * matches the condition.
- * @name find
  */
-export function findIndex<T>(predicate: (value: T, index: number, source: Observable<T>) => boolean,
-                             thisArg?: any): OperatorFunction<T, number> {
-  return (source: Observable<T>) => lift(source, new FindValueOperator(predicate, source, true, thisArg)) as Observable<any>;
+export function findIndex<T>(
+  predicate: (value: T, index: number, source: Observable<T>) => boolean,
+  thisArg?: any
+): OperatorFunction<T, number> {
+  return operate(createFind(predicate, thisArg, 'index'));
 }

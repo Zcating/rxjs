@@ -1,12 +1,20 @@
+/** @prettier */
 import { concatMap } from './concatMap';
 import { ObservableInput, OperatorFunction, ObservedValueOf } from '../types';
+import { isFunction } from '../util/isFunction';
 
 /* tslint:disable:max-line-length */
 export function concatMapTo<O extends ObservableInput<any>>(observable: O): OperatorFunction<any, ObservedValueOf<O>>;
 /** @deprecated */
-export function concatMapTo<O extends ObservableInput<any>>(observable: O, resultSelector: undefined): OperatorFunction<any, ObservedValueOf<O>>;
+export function concatMapTo<O extends ObservableInput<any>>(
+  observable: O,
+  resultSelector: undefined
+): OperatorFunction<any, ObservedValueOf<O>>;
 /** @deprecated */
-export function concatMapTo<T, R, O extends ObservableInput<any>>(observable: O, resultSelector: (outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R): OperatorFunction<T, R>;
+export function concatMapTo<T, R, O extends ObservableInput<any>>(
+  observable: O,
+  resultSelector: (outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R
+): OperatorFunction<T, R>;
 /* tslint:enable:max-line-length */
 
 /**
@@ -62,14 +70,10 @@ export function concatMapTo<T, R, O extends ObservableInput<any>>(observable: O,
  * @return {Observable} An observable of values merged together by joining the
  * passed observable with itself, one after the other, for each value emitted
  * from the source.
- * @name concatMapTo
  */
 export function concatMapTo<T, R, O extends ObservableInput<any>>(
   innerObservable: O,
   resultSelector?: (outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R
-): OperatorFunction<T, ObservedValueOf<O>|R> {
-  if (typeof resultSelector === 'function') {
-    return concatMap(() => innerObservable, resultSelector);
-  }
-  return concatMap(() => innerObservable);
+): OperatorFunction<T, ObservedValueOf<O> | R> {
+  return isFunction(resultSelector) ? concatMap(() => innerObservable, resultSelector) : concatMap(() => innerObservable);
 }

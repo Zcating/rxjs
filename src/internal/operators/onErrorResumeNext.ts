@@ -1,23 +1,18 @@
+/** @prettier */
 import { Observable } from '../Observable';
-import { from } from '../observable/from';
-import { Operator } from '../Operator';
-import { Subscriber } from '../Subscriber';
-import { isArray } from '../util/isArray';
-import { ObservableInput, OperatorFunction } from '../types';
-import { lift } from '../util/lift';
-import { SimpleOuterSubscriber, SimpleInnerSubscriber, innerSubscribe } from '../innerSubscribe';
+import { ObservableInputTuple, OperatorFunction } from '../types';
+import { operate } from '../util/lift';
+import { innerFrom } from '../observable/from';
+import { argsOrArgArray } from '../util/argsOrArgArray';
+import { OperatorSubscriber } from './OperatorSubscriber';
+import { noop } from '../util/noop';
 
-/* tslint:disable:max-line-length */
-export function onErrorResumeNext<T>(): OperatorFunction<T, T>;
-export function onErrorResumeNext<T, T2>(v: ObservableInput<T2>): OperatorFunction<T, T | T2>;
-export function onErrorResumeNext<T, T2, T3>(v: ObservableInput<T2>, v2: ObservableInput<T3>): OperatorFunction<T, T | T2 | T3>;
-export function onErrorResumeNext<T, T2, T3, T4>(v: ObservableInput<T2>, v2: ObservableInput<T3>, v3: ObservableInput<T4>): OperatorFunction<T, T | T2 | T3 | T4>;
-export function onErrorResumeNext<T, T2, T3, T4, T5>(v: ObservableInput<T2>, v2: ObservableInput<T3>, v3: ObservableInput<T4>, v4: ObservableInput<T5>): OperatorFunction<T, T | T2 | T3 | T4 | T5>;
-export function onErrorResumeNext<T, T2, T3, T4, T5, T6>(v: ObservableInput<T2>, v2: ObservableInput<T3>, v3: ObservableInput<T4>, v4: ObservableInput<T5>, v5: ObservableInput<T6>): OperatorFunction<T, T | T2 | T3 | T4 | T5 | T6>;
-export function onErrorResumeNext<T, T2, T3, T4, T5, T6, T7>(v: ObservableInput<T2>, v2: ObservableInput<T3>, v3: ObservableInput<T4>, v4: ObservableInput<T5>, v5: ObservableInput<T6>, v6: ObservableInput<T7>): OperatorFunction<T, T | T2 | T3 | T4 | T5 | T6 | T7>;
-export function onErrorResumeNext<T, R>(...observables: Array<ObservableInput<any>>): OperatorFunction<T, T | R>;
-export function onErrorResumeNext<T, R>(array: ObservableInput<any>[]): OperatorFunction<T, T | R>;
-/* tslint:enable:max-line-length */
+export function onErrorResumeNext<T, A extends readonly unknown[]>(
+  sources: [...ObservableInputTuple<A>]
+): OperatorFunction<T, T | A[number]>;
+export function onErrorResumeNext<T, A extends readonly unknown[]>(
+  ...sources: [...ObservableInputTuple<A>]
+): OperatorFunction<T, T | A[number]>;
 
 /**
  * When any of the provided Observable emits an complete or error notification, it immediately subscribes to the next one
@@ -84,84 +79,42 @@ export function onErrorResumeNext<T, R>(array: ObservableInput<any>[]): Operator
  * @param {...ObservableInput} observables Observables passed either directly or as an array.
  * @return {Observable} An Observable that emits values from source Observable, but - if it errors - subscribes
  * to the next passed Observable and so on, until it completes or runs out of Observables.
- * @name onErrorResumeNext
  */
+export function onErrorResumeNext<T, A extends readonly unknown[]>(
+  ...sources: [[...ObservableInputTuple<A>]] | [...ObservableInputTuple<A>]
+): OperatorFunction<T, T | A[number]> {
+  // For some reason, TS 4.1 RC gets the inference wrong here and infers the
+  // result to be `A[number][]` - completely dropping the ObservableInput part
+  // of the type. This makes no sense whatsoever. As a workaround, the type is
+  // asserted explicitly.
+  const nextSources = (argsOrArgArray(sources) as unknown) as ObservableInputTuple<A>;
 
-export function onErrorResumeNext<T, R>(...nextSources: Array<ObservableInput<any> |
-                                                       Array<ObservableInput<any>>>): OperatorFunction<T, R> {
-  if (nextSources.length === 1 && isArray(nextSources[0])) {
-    nextSources = <Array<Observable<any>>>nextSources[0];
-  }
+  return operate((source, subscriber) => {
+    const remaining = [source, ...nextSources];
+    const subscribeNext = () => {
+      if (!subscriber.closed) {
+        if (remaining.length > 0) {
+          let nextSource: Observable<A[number]>;
+          try {
+            nextSource = innerFrom<T | A[number]>(remaining.shift()!);
+          } catch (err) {
+            subscribeNext();
+            return;
+          }
 
-  return (source: Observable<T>) => lift(source, new OnErrorResumeNextOperator<T, R>(nextSources));
-}
+          // Here we have to use one of our Subscribers, or it does not wire up
+          // The `closed` property of upstream Subscribers synchronously, that
+          // would result in situation were we could not stop a synchronous firehose
+          // with something like `take(3)`.
+          const innerSub = new OperatorSubscriber(subscriber, undefined, noop, noop);
+          subscriber.add(nextSource.subscribe(innerSub));
+          innerSub.add(subscribeNext);
+        } else {
+          subscriber.complete();
+        }
+      }
+    };
 
-/* tslint:disable:max-line-length */
-export function onErrorResumeNextStatic<R>(v: ObservableInput<R>): Observable<R>;
-export function onErrorResumeNextStatic<T2, T3, R>(v2: ObservableInput<T2>, v3: ObservableInput<T3>): Observable<R>;
-export function onErrorResumeNextStatic<T2, T3, T4, R>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>): Observable<R>;
-export function onErrorResumeNextStatic<T2, T3, T4, T5, R>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, v5: ObservableInput<T5>): Observable<R>;
-export function onErrorResumeNextStatic<T2, T3, T4, T5, T6, R>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, v5: ObservableInput<T5>, v6: ObservableInput<T6>): Observable<R>;
-
-export function onErrorResumeNextStatic<R>(...observables: Array<ObservableInput<any> | ((...values: Array<any>) => R)>): Observable<R>;
-export function onErrorResumeNextStatic<R>(array: ObservableInput<any>[]): Observable<R>;
-/* tslint:enable:max-line-length */
-
-export function onErrorResumeNextStatic<T, R>(...nextSources: Array<ObservableInput<any> |
-  Array<ObservableInput<any>> |
-  ((...values: Array<any>) => R)>): Observable<R> {
-  let source: ObservableInput<any> | null = null;
-
-  if (nextSources.length === 1 && isArray(nextSources[0])) {
-    nextSources = <Array<ObservableInput<any>>>nextSources[0];
-  }
-  source = nextSources.shift()!;
-
-  return lift(from(source), new OnErrorResumeNextOperator<T, R>(nextSources));
-}
-
-class OnErrorResumeNextOperator<T, R> implements Operator<T, R> {
-  constructor(private nextSources: Array<ObservableInput<any>>) {
-  }
-
-  call(subscriber: Subscriber<R>, source: any): any {
-    return source.subscribe(new OnErrorResumeNextSubscriber(subscriber, this.nextSources));
-  }
-}
-
-class OnErrorResumeNextSubscriber<T, R> extends SimpleOuterSubscriber<T, R> {
-  constructor(protected destination: Subscriber<T>,
-              private nextSources: Array<ObservableInput<any>>) {
-    super(destination);
-  }
-
-  notifyError(): void {
-    this.subscribeToNextSource();
-  }
-
-  notifyComplete(): void {
-    this.subscribeToNextSource();
-  }
-
-  protected _error(err: any): void {
-    this.subscribeToNextSource();
-    this.unsubscribe();
-  }
-
-  protected _complete(): void {
-    this.subscribeToNextSource();
-    this.unsubscribe();
-  }
-
-  private subscribeToNextSource(): void {
-    const next = this.nextSources.shift();
-    if (!!next) {
-      const innerSubscriber = new SimpleInnerSubscriber(this);
-      const destination = this.destination;
-      destination.add(innerSubscriber);
-      innerSubscribe(next, innerSubscriber);
-    } else {
-      this.destination.complete();
-    }
-  }
+    subscribeNext();
+  });
 }

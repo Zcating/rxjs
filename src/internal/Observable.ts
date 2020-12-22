@@ -2,14 +2,13 @@
  * @prettier
  */
 import { Operator } from './Operator';
-import { Subscriber } from './Subscriber';
-import { Subscription } from './Subscription';
-import { TeardownLogic, OperatorFunction, PartialObserver, Subscribable } from './types';
-import { canReportError } from './util/canReportError';
-import { toSubscriber } from './util/toSubscriber';
+import { SafeSubscriber, Subscriber } from './Subscriber';
+import { isSubscription, Subscription } from './Subscription';
+import { TeardownLogic, OperatorFunction, Subscribable, Observer } from './types';
 import { observable as Symbol_observable } from './symbol/observable';
 import { pipeFromArray } from './util/pipe';
 import { config } from './config';
+import { isFunction } from './util/isFunction';
 
 /**
  * A representation of any set of values over any amount of time. This is the most basic building block
@@ -41,7 +40,6 @@ export class Observable<T> implements Subscribable<T> {
   // fight against TypeScript here so Subject can have a different static create signature
   /**
    * Creates a new cold Observable by calling the Observable constructor
-   * @static true
    * @owner Observable
    * @method create
    * @param {Function} subscribe? the subscriber function to be passed to the Observable constructor
@@ -49,7 +47,7 @@ export class Observable<T> implements Subscribable<T> {
    * @nocollapse
    * @deprecated use new Observable() instead
    */
-  static create: Function = <T>(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic) => {
+  static create: (...args: any[]) => any = <T>(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic) => {
     return new Observable<T>(subscribe);
   };
 
@@ -70,7 +68,7 @@ export class Observable<T> implements Subscribable<T> {
     return observable;
   }
 
-  subscribe(observer?: PartialObserver<T>): Subscription;
+  subscribe(observer?: Partial<Observer<T>>): Subscription;
   /** @deprecated Use an observer instead of a complete callback */
   subscribe(next: null | undefined, error: null | undefined, complete: () => void): Subscription;
   /** @deprecated Use an observer instead of an error callback */
@@ -204,33 +202,29 @@ export class Observable<T> implements Subscribable<T> {
    * @method subscribe
    */
   subscribe(
-    observerOrNext?: PartialObserver<T> | ((value: T) => void) | null,
+    observerOrNext?: Partial<Observer<T>> | ((value: T) => void) | null,
     error?: ((error: any) => void) | null,
     complete?: (() => void) | null
   ): Subscription {
-    const { operator } = this;
-    const sink = toSubscriber(observerOrNext, error, complete);
+    const subscriber = isSubscriber(observerOrNext) ? observerOrNext : new SafeSubscriber(observerOrNext, error, complete);
 
-    if (operator) {
-      sink.add(operator.call(sink, this.source));
-    } else {
-      sink.add(
-        this.source || (config.useDeprecatedSynchronousErrorHandling && !sink.syncErrorThrowable)
-          ? this._subscribe(sink)
-          : this._trySubscribe(sink)
-      );
-    }
+    // If we have an operator, it's the result of a lift, and we let the lift
+    // mechanism do the subscription for us in the operator call. Otherwise,
+    // if we have a source, it's a trusted observable we own, and we can call
+    // the _subscribe without wrapping it in a try/catch. If we are supposed to
+    // use the deprecated sync error handling, then we don't need the try/catch either
+    // otherwise, it may be from a user-made observable instance, and we want to
+    // wrap it in a try/catch so we can handle errors appropriately.
+    const { operator, source } = this;
+    subscriber.add(
+      operator
+        ? operator.call(subscriber, source)
+        : source || config.useDeprecatedSynchronousErrorHandling
+        ? this._subscribe(subscriber)
+        : this._trySubscribe(subscriber)
+    );
 
-    if (config.useDeprecatedSynchronousErrorHandling) {
-      if (sink.syncErrorThrowable) {
-        sink.syncErrorThrowable = false;
-        if (sink.syncErrorThrown) {
-          throw sink.syncErrorValue;
-        }
-      }
-    }
-
-    return sink;
+    return subscriber;
   }
 
   /** @deprecated This is an internal implementation detail, do not use. */
@@ -239,14 +233,9 @@ export class Observable<T> implements Subscribable<T> {
       return this._subscribe(sink);
     } catch (err) {
       if (config.useDeprecatedSynchronousErrorHandling) {
-        sink.syncErrorThrown = true;
-        sink.syncErrorValue = err;
+        throw err;
       }
-      if (canReportError(sink)) {
-        sink.error(err);
-      } else {
-        console.warn(err);
-      }
+      sink.error(err);
     }
   }
 
@@ -322,9 +311,7 @@ export class Observable<T> implements Subscribable<T> {
             next(value);
           } catch (err) {
             reject(err);
-            if (subscription) {
-              subscription.unsubscribe();
-            }
+            subscription?.unsubscribe();
           }
         },
         reject,
@@ -335,8 +322,7 @@ export class Observable<T> implements Subscribable<T> {
 
   /** @internal This is an internal implementation detail, do not use. */
   protected _subscribe(subscriber: Subscriber<any>): TeardownLogic {
-    const { source } = this;
-    return source && source.subscribe(subscriber);
+    return this.source?.subscribe(subscriber);
   }
 
   /**
@@ -439,20 +425,16 @@ export class Observable<T> implements Subscribable<T> {
    * ```
    */
   pipe(...operations: OperatorFunction<any, any>[]): Observable<any> {
-    if (operations.length === 0) {
-      return this as any;
-    }
-
-    return pipeFromArray(operations)(this);
+    return operations.length ? pipeFromArray(operations)(this) : this;
   }
 
   /* tslint:disable:max-line-length */
   /** @deprecated Deprecated use {@link firstValueFrom} or {@link lastValueFrom} instead */
-  toPromise<T>(this: Observable<T>): Promise<T | undefined>;
+  toPromise(): Promise<T | undefined>;
   /** @deprecated Deprecated use {@link firstValueFrom} or {@link lastValueFrom} instead */
-  toPromise<T>(this: Observable<T>, PromiseCtor: typeof Promise): Promise<T | undefined>;
+  toPromise(PromiseCtor: typeof Promise): Promise<T | undefined>;
   /** @deprecated Deprecated use {@link firstValueFrom} or {@link lastValueFrom} instead */
-  toPromise<T>(this: Observable<T>, PromiseCtor: PromiseConstructorLike): Promise<T | undefined>;
+  toPromise(PromiseCtor: PromiseConstructorLike): Promise<T | undefined>;
   /* tslint:enable:max-line-length */
 
   /**
@@ -495,13 +477,13 @@ export class Observable<T> implements Subscribable<T> {
  * @param promiseCtor The optional promise constructor to passed by consuming code
  */
 function getPromiseCtor(promiseCtor: PromiseConstructorLike | undefined) {
-  if (!promiseCtor) {
-    promiseCtor = config.Promise || Promise;
-  }
+  return promiseCtor ?? config.Promise ?? Promise;
+}
 
-  if (!promiseCtor) {
-    throw new Error('no Promise impl found');
-  }
+function isObserver<T>(value: any): value is Observer<T> {
+  return value && isFunction(value.next) && isFunction(value.error) && isFunction(value.complete);
+}
 
-  return promiseCtor;
+function isSubscriber<T>(value: any): value is Subscriber<T> {
+  return (value && value instanceof Subscriber) || (isObserver(value) && isSubscription(value));
 }

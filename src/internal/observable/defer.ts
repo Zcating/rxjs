@@ -1,6 +1,7 @@
+/** @prettier */
 import { Observable } from '../Observable';
 import { ObservedValueOf, ObservableInput } from '../types';
-import { from } from './from'; // lol
+import { innerFrom } from './from';
 
 /**
  * Creates an Observable that, on subscribe, calls an Observable factory to
@@ -47,20 +48,9 @@ import { from } from './from'; // lol
  * to an Observable.
  * @return {Observable} An Observable whose Observers' subscriptions trigger
  * an invocation of the given Observable factory function.
- * @static true
- * @name defer
- * @owner Observable
  */
 export function defer<R extends ObservableInput<any>>(observableFactory: () => R): Observable<ObservedValueOf<R>> {
-  return new Observable<ObservedValueOf<R>>(subscriber => {
-    let input: R;
-    try {
-      input = observableFactory();
-    } catch (err) {
-      subscriber.error(err);
-      return undefined;
-    }
-    const source = from(input);
-    return source.subscribe(subscriber);
+  return new Observable<ObservedValueOf<R>>((subscriber) => {
+    innerFrom(observableFactory()).subscribe(subscriber);
   });
 }

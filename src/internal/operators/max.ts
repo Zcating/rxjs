@@ -1,5 +1,7 @@
+/** @prettier */
 import { reduce } from './reduce';
 import { MonoTypeOperatorFunction } from '../types';
+import { isFunction } from '../util/isFunction';
 
 /**
  * The Max operator operates on an Observable that emits numbers (or items that can be compared with a provided function),
@@ -43,12 +45,7 @@ import { MonoTypeOperatorFunction } from '../types';
  * @param {Function} [comparer] - Optional comparer function that it will use instead of its default to compare the
  * value of two items.
  * @return {Observable} An Observable that emits item with the largest value.
- * @name max
  */
 export function max<T>(comparer?: (x: T, y: T) => number): MonoTypeOperatorFunction<T> {
-  const max: (x: T, y: T) => T = (typeof comparer === 'function')
-    ? (x, y) => comparer(x, y) > 0 ? x : y
-    : (x, y) => x > y ? x : y;
-
-  return reduce(max);
+  return reduce(isFunction(comparer) ? (x, y) => (comparer(x, y) > 0 ? x : y) : (x, y) => (x > y ? x : y));
 }

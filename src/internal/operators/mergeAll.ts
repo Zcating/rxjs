@@ -1,6 +1,6 @@
 import { mergeMap } from './mergeMap';
 import { identity } from '../util/identity';
-import { OperatorFunction, ObservableInput } from '../types';
+import { OperatorFunction, ObservableInput, ObservedValueOf } from '../types';
 
 /**
  * Converts a higher-order Observable into a first-order Observable which
@@ -57,8 +57,7 @@ import { OperatorFunction, ObservableInput } from '../types';
  * Observables being subscribed to concurrently.
  * @return {Observable} An Observable that emits values coming from all the
  * inner Observables emitted by the source Observable.
- * @name mergeAll
  */
-export function mergeAll<T>(concurrent: number = Infinity): OperatorFunction<ObservableInput<T>, T> {
+export function mergeAll<O extends ObservableInput<any>>(concurrent: number = Infinity): OperatorFunction<O, ObservedValueOf<O>> {
   return mergeMap(identity, concurrent);
 }

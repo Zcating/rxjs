@@ -1,9 +1,9 @@
 import { Observable } from '../Observable';
-import { isArray } from '../util/isArray';
-import { MonoTypeOperatorFunction, OperatorFunction, ObservableInput, ObservedValueUnionFromArray } from '../types';
-import { race as raceStatic, RaceOperator } from '../observable/race';
-import { fromArray } from '../observable/fromArray';
-import { lift, stankyLift } from '../util/lift';
+import { MonoTypeOperatorFunction, OperatorFunction, ObservableInputTuple } from '../types';
+import { raceInit } from '../observable/race';
+import { operate } from '../util/lift';
+import { argsOrArgArray } from "../util/argsOrArgArray";
+import { identity } from '../util/identity';
 
 /* tslint:disable:max-line-length */
 /** @deprecated Deprecated use {@link raceWith} */
@@ -23,14 +23,8 @@ export function race<T, R>(...observables: Array<Observable<any> | Array<Observa
  * @return {Observable} An Observable that mirrors the output of the first Observable to emit an item.
  * @deprecated Deprecated use {@link raceWith}
  */
-export function race<T, R>(...observables: ObservableInput<R>[]): OperatorFunction<T, (T|R)[]> {
-  // if the only argument is an array, it was most likely called with
-  // `pair([obs1, obs2, ...])`
-  if (observables.length === 1 && isArray(observables[0])) {
-    observables = observables[0];
-  }
-
-  return raceWith(...observables) as any;
+export function race<T>(...args: any[]): OperatorFunction<T, unknown> {
+  return raceWith(...argsOrArgArray(args));
 }
 
 /**
@@ -61,17 +55,10 @@ export function race<T, R>(...observables: ObservableInput<R>[]): OperatorFuncti
  * @param otherSources Sources used to race for which Observable emits first.
  */
 
-export function raceWith<T, A extends ObservableInput<any>[]>(
-  ...otherSources: A
-): OperatorFunction<T, T | ObservedValueUnionFromArray<A>> {
-  return function raceWithOperatorFunction(source: Observable<T>) {
-    if (otherSources.length === 0) {
-      return source;
-    }
-
-    return stankyLift(
-      source,
-      raceStatic(source, ...otherSources)
-    );
-  };
+export function raceWith<T, A extends readonly unknown[]>(
+  ...otherSources: [...ObservableInputTuple<A>]
+): OperatorFunction<T, T | A[number]> {
+  return !otherSources.length ? identity : operate((source, subscriber) => {
+    raceInit<T | A[number]>([source, ...otherSources])(subscriber);
+  });
 }

@@ -1,29 +1,14 @@
-import { expect } from 'chai';
 import { takeLast, mergeMap } from 'rxjs/operators';
-import { range, ArgumentOutOfRangeError, of } from 'rxjs';
+import { of } from 'rxjs';
 import { TestScheduler } from 'rxjs/testing';
-import { assertDeepEquals } from '../helpers/test-helper';
+import { observableMatcher } from '../helpers/observableMatcher';
 
 /** @test {takeLast} */
 describe('takeLast operator', () => {
   let rxTest: TestScheduler;
 
   beforeEach(() => {
-    rxTest = new TestScheduler(assertDeepEquals);
-  });
-
-  it('should error for invalid arguments', () => {
-    expect(() => {
-      of(1, 2, 3).pipe((takeLast as any)());
-    }).to.throw(TypeError, `'count' is not a number`);
-
-    expect(() => {
-      of(1, 2, 3).pipe((takeLast as any)('banana'));
-    }).to.throw(TypeError, `'count' is not a number`);
-
-    expect(() => {
-      of(1, 2, 3).pipe((takeLast as any)('3'));
-    }).not.to.throw();
+    rxTest = new TestScheduler(observableMatcher);
   });
 
   it('should take two values of an observable with many values', () => {
@@ -71,11 +56,24 @@ describe('takeLast operator', () => {
   });
 
   it('should not take any values', () => {
-    rxTest.run(({ cold, expectObservable }) => {
+    rxTest.run(({ cold, expectObservable, expectSubscriptions }) => {
       const e1 = cold(' --a-----b----c---d--|');
       const expected = '|';
+      const e1subs: string[] = [];
 
       expectObservable(e1.pipe(takeLast(0))).toBe(expected);
+      expectSubscriptions(e1.subscriptions).toBe(e1subs);
+    });
+  });
+
+  it('should not take any values if provided with negative value', () => {
+    rxTest.run(({ cold, expectObservable, expectSubscriptions }) => {
+      const e1 = cold(' --a-----b----c---d--|');
+      const expected = '|';
+      const e1subs: string[] = [];
+
+      expectObservable(e1.pipe(takeLast(-42))).toBe(expected);
+      expectSubscriptions(e1.subscriptions).toBe(e1subs);
     });
   });
 
@@ -188,12 +186,6 @@ describe('takeLast operator', () => {
       expectObservable(e1.pipe(takeLast(42))).toBe(expected);
       expectSubscriptions(e1.subscriptions).toBe(e1subs);
     });
-  });
-
-  it('should throw if total is less than zero', () => {
-    expect(() => {
-      range(0, 10).pipe(takeLast(-1));
-    }).to.throw(ArgumentOutOfRangeError);
   });
 
   it('should not break unsubscription chain when unsubscribed explicitly', () => {

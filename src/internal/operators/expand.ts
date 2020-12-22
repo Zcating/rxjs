@@ -1,13 +1,23 @@
-import { Observable } from '../Observable';
-import { Operator } from '../Operator';
-import { Subscriber } from '../Subscriber';
-import { MonoTypeOperatorFunction, OperatorFunction, ObservableInput, SchedulerLike } from '../types';
-import { lift } from '../util/lift';
-import { SimpleInnerSubscriber, SimpleOuterSubscriber, innerSubscribe } from '../innerSubscribe';
+/** @prettier */
+import { OperatorFunction, ObservableInput, SchedulerLike } from '../types';
+import { operate } from '../util/lift';
+import { mergeInternals } from './mergeInternals';
 
 /* tslint:disable:max-line-length */
-export function expand<T, R>(project: (value: T, index: number) => ObservableInput<R>, concurrent?: number, scheduler?: SchedulerLike): OperatorFunction<T, R>;
-export function expand<T>(project: (value: T, index: number) => ObservableInput<T>, concurrent?: number, scheduler?: SchedulerLike): MonoTypeOperatorFunction<T>;
+export function expand<T, R>(
+  project: (value: T, index: number) => ObservableInput<R>,
+  concurrent?: number,
+  scheduler?: SchedulerLike
+): OperatorFunction<T, R>;
+/**
+ * @deprecated Will be removed in v8. If you need to schedule the inner subscription,
+ * use `subscribeOn` within the projection function: `expand((value) => fn(value).pipe(subscribeOn(scheduler)))`.
+ */
+export function expand<T, R>(
+  project: (value: T, index: number) => ObservableInput<R>,
+  concurrent: number | undefined,
+  scheduler: SchedulerLike
+): OperatorFunction<T, R>;
 /* tslint:enable:max-line-length */
 
 /**
@@ -59,116 +69,27 @@ export function expand<T>(project: (value: T, index: number) => ObservableInput<
  * result of applying the projection function to each value emitted on the
  * output Observable and merging the results of the Observables obtained
  * from this transformation.
- * @name expand
  */
-export function expand<T, R>(project: (value: T, index: number) => ObservableInput<R>,
-                             concurrent: number = Infinity,
-                             scheduler?: SchedulerLike): OperatorFunction<T, R> {
+export function expand<T, R>(
+  project: (value: T, index: number) => ObservableInput<R>,
+  concurrent = Infinity,
+  scheduler?: SchedulerLike
+): OperatorFunction<T, R> {
   concurrent = (concurrent || 0) < 1 ? Infinity : concurrent;
+  return operate((source, subscriber) =>
+    mergeInternals(
+      // General merge params
+      source,
+      subscriber,
+      project,
+      concurrent,
 
-  return (source: Observable<T>) => lift(source, new ExpandOperator(project, concurrent, scheduler));
-}
+      // onBeforeNext
+      undefined,
 
-export class ExpandOperator<T, R> implements Operator<T, R> {
-  constructor(private project: (value: T, index: number) => ObservableInput<R>,
-              private concurrent: number,
-              private scheduler?: SchedulerLike) {
-  }
-
-  call(subscriber: Subscriber<R>, source: any): any {
-    return source.subscribe(new ExpandSubscriber(subscriber, this.project, this.concurrent, this.scheduler));
-  }
-}
-
-interface DispatchArg<T, R> {
-  subscriber: ExpandSubscriber<T, R>;
-  result: ObservableInput<R>;
-}
-
-/**
- * We need this JSDoc comment for affecting ESDoc.
- * @ignore
- * @extends {Ignored}
- */
-export class ExpandSubscriber<T, R> extends SimpleOuterSubscriber<T, R> {
-  private index: number = 0;
-  private active: number = 0;
-  private hasCompleted: boolean = false;
-  private buffer: any[] | undefined;
-
-  constructor(protected destination: Subscriber<R>,
-              private project: (value: T, index: number) => ObservableInput<R>,
-              private concurrent: number,
-              private scheduler?: SchedulerLike) {
-    super(destination);
-    if (concurrent < Infinity) {
-      this.buffer = [];
-    }
-  }
-
-  private static dispatch<T, R>(arg: DispatchArg<T, R>): void {
-    const {subscriber, result} = arg;
-    subscriber.subscribeToProjection(result);
-  }
-
-  protected _next(value: any): void {
-    const destination = this.destination;
-
-    if (destination.closed) {
-      this._complete();
-      return;
-    }
-
-    const index = this.index++;
-    if (this.active < this.concurrent) {
-      destination.next(value);
-      try {
-        this.active++;
-        const { project } = this;
-        const result = project(value, index);
-        if (!this.scheduler) {
-          this.subscribeToProjection(result);
-        } else {
-          const state: DispatchArg<T, R> = { subscriber: this, result };
-          const destination = this.destination;
-          destination.add(this.scheduler.schedule<DispatchArg<T, R>>(
-            ExpandSubscriber.dispatch as any,
-            0,
-            state
-          ));
-        }
-      } catch (e) {
-        destination.error(e);
-      }
-    } else {
-      this.buffer!.push(value);
-    }
-  }
-
-  private subscribeToProjection(result: any): void {
-    this.destination.add(innerSubscribe(result, new SimpleInnerSubscriber(this)));
-  }
-
-  protected _complete(): void {
-    this.hasCompleted = true;
-    if (this.hasCompleted && this.active === 0) {
-      this.destination.complete();
-    }
-    this.unsubscribe();
-  }
-
-  notifyNext(innerValue: R): void {
-    this._next(innerValue);
-  }
-
-  notifyComplete(): void {
-    const buffer = this.buffer;
-    this.active--;
-    if (buffer && buffer.length > 0) {
-      this._next(buffer.shift());
-    }
-    if (this.hasCompleted && this.active === 0) {
-      this.destination.complete();
-    }
-  }
+      // Expand-specific
+      true, // Use expand path
+      scheduler // Inner subscription scheduler
+    )
+  );
 }

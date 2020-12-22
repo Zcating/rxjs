@@ -1,19 +1,28 @@
-import { Observable } from '../Observable';
-import { Operator } from '../Operator';
-import { Subscriber } from '../Subscriber';
-import { Subscription } from '../Subscription';
+/** @prettier */
 import { ObservableInput, OperatorFunction, ObservedValueOf } from '../types';
 import { map } from './map';
-import { from } from '../observable/from';
-import { lift } from '../util/lift';
-import { innerSubscribe, SimpleOuterSubscriber, SimpleInnerSubscriber } from '../innerSubscribe';
+import { innerFrom } from '../observable/from';
+import { operate } from '../util/lift';
+import { mergeInternals } from './mergeInternals';
+import { isFunction } from '../util/isFunction';
 
 /* tslint:disable:max-line-length */
-export function mergeMap<T, O extends ObservableInput<any>>(project: (value: T, index: number) => O, concurrent?: number): OperatorFunction<T, ObservedValueOf<O>>;
+export function mergeMap<T, O extends ObservableInput<any>>(
+  project: (value: T, index: number) => O,
+  concurrent?: number
+): OperatorFunction<T, ObservedValueOf<O>>;
 /** @deprecated resultSelector no longer supported, use inner map instead */
-export function mergeMap<T, O extends ObservableInput<any>>(project: (value: T, index: number) => O, resultSelector: undefined, concurrent?: number): OperatorFunction<T, ObservedValueOf<O>>;
+export function mergeMap<T, O extends ObservableInput<any>>(
+  project: (value: T, index: number) => O,
+  resultSelector: undefined,
+  concurrent?: number
+): OperatorFunction<T, ObservedValueOf<O>>;
 /** @deprecated resultSelector no longer supported, use inner map instead */
-export function mergeMap<T, R, O extends ObservableInput<any>>(project: (value: T, index: number) => O, resultSelector: (outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R, concurrent?: number): OperatorFunction<T, R>;
+export function mergeMap<T, R, O extends ObservableInput<any>>(
+  project: (value: T, index: number) => O,
+  resultSelector: (outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R,
+  concurrent?: number
+): OperatorFunction<T, R>;
 /* tslint:enable:max-line-length */
 
 /**
@@ -74,90 +83,15 @@ export function mergeMap<T, R, O extends ObservableInput<any>>(
   project: (value: T, index: number) => O,
   resultSelector?: ((outerValue: T, innerValue: ObservedValueOf<O>, outerIndex: number, innerIndex: number) => R) | number,
   concurrent: number = Infinity
-): OperatorFunction<T, ObservedValueOf<O>|R> {
-  if (typeof resultSelector === 'function') {
+): OperatorFunction<T, ObservedValueOf<O> | R> {
+  if (isFunction(resultSelector)) {
     // DEPRECATED PATH
-    return (source: Observable<T>) => source.pipe(
-      mergeMap((a, i) => from(project(a, i)).pipe(
-        map((b: any, ii: number) => resultSelector(a, b, i, ii)),
-      ), concurrent)
-    );
+    return mergeMap((a, i) => map((b: any, ii: number) => resultSelector(a, b, i, ii))(innerFrom(project(a, i))), concurrent);
   } else if (typeof resultSelector === 'number') {
     concurrent = resultSelector;
   }
-  return (source: Observable<T>) => lift(source, new MergeMapOperator(project, concurrent));
-}
 
-export class MergeMapOperator<T, R> implements Operator<T, R> {
-  constructor(private project: (value: T, index: number) => ObservableInput<R>,
-              private concurrent: number = Infinity) {
-  }
-
-  call(observer: Subscriber<R>, source: any): any {
-    return source.subscribe(new MergeMapSubscriber(
-      observer, this.project, this.concurrent
-    ));
-  }
-}
-
-/**
- * We need this JSDoc comment for affecting ESDoc.
- * @ignore
- * @extends {Ignored}
- */
-export class MergeMapSubscriber<T, R> extends SimpleOuterSubscriber<T, R> {
-  private hasCompleted: boolean = false;
-  private buffer: T[] = [];
-  private active: number = 0;
-  protected index: number = 0;
-
-  constructor(protected destination: Subscriber<R>,
-              private project: (value: T, index: number) => ObservableInput<R>,
-              private concurrent: number = Infinity) {
-    super(destination);
-  }
-
-  protected _next(value: T): void {
-    if (this.active < this.concurrent) {
-      let result: ObservableInput<R>;
-      const index = this.index++;
-      try {
-        result = this.project(value, index);
-      } catch (err) {
-        this.destination.error(err);
-        return;
-      }
-      this.active++;
-      const innerSubscriber = new SimpleInnerSubscriber(this);
-      const destination = this.destination as Subscription;
-      destination.add(innerSubscriber);
-      innerSubscribe(result, innerSubscriber);
-    } else {
-      this.buffer.push(value);
-    }
-  }
-
-  protected _complete(): void {
-    this.hasCompleted = true;
-    if (this.active === 0 && this.buffer.length === 0) {
-      this.destination.complete();
-    }
-    this.unsubscribe();
-  }
-
-  notifyNext(innerValue: R): void {
-    this.destination.next(innerValue);
-  }
-
-  notifyComplete(): void {
-    const buffer = this.buffer;
-    this.active--;
-    if (buffer.length > 0) {
-      this._next(buffer.shift()!);
-    } else if (this.active === 0 && this.hasCompleted) {
-      this.destination.complete();
-    }
-  }
+  return operate((source, subscriber) => mergeInternals(source, subscriber, project, concurrent));
 }
 
 /**

@@ -1,19 +1,17 @@
+/** @prettier */
+import { OperatorSubscriber } from '../../operators/OperatorSubscriber';
 import { Observable } from '../../Observable';
-import { Subscription } from '../../Subscription';
-import { from } from '../../observable/from';
+import { innerFrom } from '../../observable/from';
 import { ObservableInput } from '../../types';
 
 export function fromFetch<T>(
   input: string | Request,
   init: RequestInit & {
-    selector: (response: Response) => ObservableInput<T>
+    selector: (response: Response) => ObservableInput<T>;
   }
 ): Observable<T>;
 
-export function fromFetch(
-  input: string | Request,
-  init?: RequestInit
-): Observable<Response>;
+export function fromFetch(input: string | Request, init?: RequestInit): Observable<Response>;
 
 /**
  * Uses [the Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API) to
@@ -97,77 +95,94 @@ export function fromFetch(
 export function fromFetch<T>(
   input: string | Request,
   initWithSelector: RequestInit & {
-    selector?: (response: Response) => ObservableInput<T>
+    selector?: (response: Response) => ObservableInput<T>;
   } = {}
 ): Observable<Response | T> {
   const { selector, ...init } = initWithSelector;
-  return new Observable<Response | T>(subscriber => {
+  return new Observable<Response | T>((subscriber) => {
+    // Our controller for aborting this fetch.
+    // Any externally provided AbortSignal will have to call
+    // abort on this controller when signaled, because the
+    // signal from this controller is what is being passed to `fetch`.
     const controller = new AbortController();
-    const signal = controller.signal;
+    const { signal } = controller;
+    // This flag exists to make sure we don't `abort()` the fetch upon tearing down
+    // this observable after emitting a Response. Aborting in such circumstances
+    // would also abort subsequent methods - like `json()` - that could be called
+    // on the Response. Consider: `fromFetch().pipe(take(1), mergeMap(res => res.json()))`
     let abortable = true;
-    let unsubscribed = false;
 
-    const subscription = new Subscription();
-    subscription.add(() => {
-      unsubscribed = true;
-      if (abortable) {
-        controller.abort();
-      }
-    });
-
+    // The initialization object passed to `fetch` as the second
+    // argument. This ferries in important information, including our
+    // AbortSignal.
     let perSubscriberInit: RequestInit;
+
+    // If the user provided an init configuration object,
+    // let's process it and chain our abort signals, if necessary.
     if (init) {
       // If a signal is provided, just have it teardown. It's a cancellation token, basically.
-      if (init.signal) {
-        if (init.signal.aborted) {
+      const { signal: outerSignal } = init;
+      if (outerSignal) {
+        if (outerSignal.aborted) {
           controller.abort();
         } else {
-          const outerSignal = init.signal;
+          // We got an AbortSignal from the arguments passed into `fromFetch`.
+          // We need to wire up our AbortController to abort when this signal aborts.
           const outerSignalHandler = () => {
             if (!signal.aborted) {
               controller.abort();
             }
           };
           outerSignal.addEventListener('abort', outerSignalHandler);
-          subscription.add(() => outerSignal.removeEventListener('abort', outerSignalHandler));
+          subscriber.add(() => outerSignal.removeEventListener('abort', outerSignalHandler));
         }
       }
-      // init cannot be mutated or reassigned as it's closed over by the
-      // subscriber callback and is shared between subscribers.
+      // Create a new init, so we don't accidentally mutate the
+      // passed init, or reassign it. This is because the init passed in
+      // is shared between each subscription to the result.
       perSubscriberInit = { ...init, signal };
     } else {
+      // No init was provided, so just make our own and provide our signal
       perSubscriberInit = { signal };
     }
 
-    fetch(input, perSubscriberInit).then(response => {
-      if (selector) {
-        subscription.add(from(selector(response)).subscribe(
-          value => subscriber.next(value),
-          err => {
-            abortable = false;
-            if (!unsubscribed) {
-              // Only forward the error if it wasn't an abort.
-              subscriber.error(err);
-            }
-          },
-          () => {
-            abortable = false;
-            subscriber.complete();
-          }
-        ));
-      } else {
-        abortable = false;
-        subscriber.next(response);
-        subscriber.complete();
-      }
-    }).catch(err => {
+    const handleError = (err: any) => {
       abortable = false;
-      if (!unsubscribed) {
-        // Only forward the error if it wasn't an abort.
-        subscriber.error(err);
-      }
-    });
+      subscriber.error(err);
+    };
 
-    return subscription;
+    fetch(input, perSubscriberInit)
+      .then((response) => {
+        if (selector) {
+          // If we have a selector function, use it to project our response.
+          // Note that any error that comes from our selector will be
+          // sent to the promise `catch` below and handled.
+          innerFrom(selector(response)).subscribe(
+            new OperatorSubscriber(
+              subscriber,
+              // Values are passed through to the subscriber
+              undefined,
+              // Error handling
+              handleError,
+              // The projected response is complete.
+              () => {
+                abortable = false;
+                subscriber.complete();
+              }
+            )
+          );
+        } else {
+          abortable = false;
+          subscriber.next(response);
+          subscriber.complete();
+        }
+      })
+      .catch(handleError);
+
+    return () => {
+      if (abortable) {
+        controller.abort();
+      }
+    };
   });
 }

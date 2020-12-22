@@ -2,14 +2,14 @@ import { expect } from 'chai';
 import { single, mergeMap, tap } from 'rxjs/operators';
 import { of, EmptyError, SequenceError, NotFoundError, Observable } from 'rxjs';
 import { TestScheduler } from 'rxjs/testing';
-import { assertDeepEquals } from '../helpers/test-helper';
+import { observableMatcher } from '../helpers/observableMatcher';
 
 /** @test {single} */
 describe('single operator', () => {
   let rxTest: TestScheduler;
 
   beforeEach(() => {
-    rxTest = new TestScheduler(assertDeepEquals);
+    rxTest = new TestScheduler(observableMatcher);
   });
 
   it('should raise error from empty predicate if observable emits multiple time', () => {
@@ -329,8 +329,7 @@ describe('single operator', () => {
     });
   });
 
-  // TODO: fix firehose unsubscription
-  it.skip('should stop listening to a synchronous observable when unsubscribed', () => {
+  it('should stop listening to a synchronous observable when unsubscribed', () => {
     const sideEffects: number[] = [];
     const synchronousObservable = new Observable<number>(subscriber => {
       // This will check to see if the subscriber was closed on each loop

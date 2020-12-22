@@ -16,7 +16,7 @@ describe('audit operator', () => {
     testScheduler.run(({ hot, cold, expectObservable, expectSubscriptions }) => {
       const e1 = hot('    -a-xy-----b--x--cxxx-|');
       const e1subs = '    ^--------------------!';
-      const e2 = cold('    ----|                ');
+      const e2 = cold('    ----x                ');
       const e2subs = [
         '                 -^---!                ',
         '                 ----------^---!        ',
@@ -36,7 +36,7 @@ describe('audit operator', () => {
     testScheduler.run(({ hot, cold, expectObservable, expectSubscriptions }) => {
       const e1 = hot('  -a--------b-----c----|');
       const e1subs = '  ^--------------------!';
-      const e2 = cold('  ----|                ');
+      const e2 = cold('  ----x                ');
       const e2subs = [
         '               -^---!                ',
         '               ----------^---!       ',
@@ -120,17 +120,17 @@ describe('audit operator', () => {
 
   it('should handle a busy producer emitting a regular repeating sequence', () => {
     testScheduler.run(({ hot, cold, expectObservable, expectSubscriptions }) => {
-      const e1 = hot('  abcdefabcdefabcdefabcdefa|');
-      const e1subs = '  ^------------------------!';
-      const e2 = cold(' -----|                    ');
+      const e1 = hot('  abcdefabcdefabcdefabcdefa|    ');
+      const e1subs = '  ^------------------------!    ';
+      const e2 = cold(' -----x                        ');
       const e2subs = [
-        '               ^----!                    ',
-        '               ------^----!              ',
-        '               ------------^----!        ',
-        '               ------------------^----!  ',
-        '               ------------------------^!'
+        '               ^----!                        ',
+        '               ------^----!                  ',
+        '               ------------^----!            ',
+        '               ------------------^----!      ',
+        '               ------------------------^----!'
       ];
-      const expected = '-----f-----f-----f-----f-|';
+      const expected = '-----f-----f-----f-----f-----(a|)';
 
       const result = e1.pipe(audit(() => e2));
 
@@ -140,11 +140,11 @@ describe('audit operator', () => {
     });
   });
 
-  it('should mirror source if durations are always empty', () => {
+  it('should mirror source if durations are immediate', () => {
     testScheduler.run(({ hot, cold, expectObservable, expectSubscriptions }) => {
       const e1 = hot('  abcdefabcdefabcdefabcdefa|');
       const e1subs = '  ^------------------------!';
-      const e2 = cold(' |');
+      const e2 = cold(' x');
       const expected = 'abcdefabcdefabcdefabcdefa|';
 
       const result = e1.pipe(audit(() => e2));
@@ -154,12 +154,12 @@ describe('audit operator', () => {
     });
   });
 
-  it('should mirror source if durations are EMPTY', () => {
+  it('should emit no values if durations are EMPTY', () => {
     testScheduler.run(({ hot, expectObservable, expectSubscriptions }) => {
       const e1 =   hot('abcdefabcdefabcdefabcdefa|');
       const e1subs =   '^------------------------!';
       const e2 =  EMPTY;
-      const expected = 'abcdefabcdefabcdefabcdefa|';
+      const expected = '-------------------------|';
 
       const result = e1.pipe(audit(() => e2));
 
@@ -168,13 +168,13 @@ describe('audit operator', () => {
     });
   });
 
-  it('should emit no values if duration is a never', () => {
+  it('should emit no values and never complete if duration is a never', () => {
     testScheduler.run(({ hot, cold, expectObservable, expectSubscriptions }) => {
       const e1 = hot('  ----abcdefabcdefabcdefabcdefa|');
       const e1subs = '  ^----------------------------!';
       const e2 = cold(' -');
-      const e2subs = '  ----^------------------------!';
-      const expected = '-----------------------------|';
+      const e2subs = '  ----^-------------------------';
+      const expected = '------------------------------';
 
       const result = e1.pipe(audit(() => e2));
 
@@ -232,23 +232,23 @@ describe('audit operator', () => {
 
   it('should audit using durations of varying lengths', () => {
     testScheduler.run(({ hot, cold, expectObservable, expectSubscriptions }) => {
-      const e1 = hot('  abcdefabcdabcdefghabca|');
-      const e1subs = '  ^---------------------!';
+      const e1 = hot('  abcdefabcdabcdefghabca|     ');
+      const e1subs = '  ^---------------------!     ';
       const e2 = [
-        cold('          -----|                 '),
-        cold('              ---|               '),
-        cold('                  -------|       '),
-        cold('                        --|      '),
-        cold('                           ----| ')
+        cold('          -----x                      '),
+        cold('              ---x                    '),
+        cold('                  -------x            '),
+        cold('                        --x           '),
+        cold('                           ----x      ')
       ];
       const e2subs =  [
-        '               ^----!                  ',
-        '               ------^--!              ',
-        '               ----------^------!      ',
-        '               ------------------^-!   ',
-        '               ---------------------^! '
+        '               ^----!                      ',
+        '               ------^--!                  ',
+        '               ----------^------!          ',
+        '               ------------------^-!       ',
+        '               ---------------------^---!  '
       ];
-      const expected = '-----f---d-------h--c-| ';
+      const expected = '-----f---d-------h--c----(a|)';
 
       let i = 0;
       const result = e1.pipe(audit(() => e2[i++]));
@@ -266,8 +266,8 @@ describe('audit operator', () => {
       const e1 = hot('  abcdefabcdabcdefghabca|');
       const e1subs = '  ^----------------!     ';
       const e2 = [
-        cold('          -----|                 '),
-        cold('              ---|               '),
+        cold('          -----x                 '),
+        cold('              ---x               '),
         cold('                  -------#       ')
       ];
       const e2subs = [
@@ -293,13 +293,13 @@ describe('audit operator', () => {
       const e1 =   hot('abcdefabcdabcdefghabca|   ');
       const e1subs =   '^---------!               ';
       const e2 = [
-        cold('          -----|                    '),
-        cold('              ---|                  '),
-        cold('                  -------|          ')
+        cold('          -----x                    '),
+        cold('              ---x                  '),
+        cold('                  -------x          ')
       ];
       const e2subs = [
         '               ^----!                     ',
-        '               ------^--!                   '
+        '               ------^--!                 '
       ];
       const expected = '-----f---d#                ';
 
@@ -391,12 +391,10 @@ describe('audit operator', () => {
 
   it('should audit by promise resolves', (done: MochaDone) => {
     const e1 = interval(10).pipe(take(5));
-    const expected = [0, 1, 2, 3];
+    const expected = [0, 1, 2, 3, 4];
 
     e1.pipe(
-      audit(() => {
-        return new Promise((resolve: any) => { resolve(42); });
-      })
+      audit(() => Promise.resolve(42))
     ).subscribe(
       (x: number) => {
         expect(x).to.equal(expected.shift()); },
@@ -454,5 +452,24 @@ describe('audit operator', () => {
     ).subscribe(() => { /* noop */ });
 
     expect(sideEffects).to.deep.equal([0, 1, 2]);
+  });
+
+  it('should emit last value after duration completes if source completes first', () =>  {
+    testScheduler.run(({ hot, cold, expectObservable, expectSubscriptions }) => {
+      const e1 =   hot('-a--------xy|  ');
+      const e1subs = '  ^-----------!  ';
+      const e2 =  cold(' ----x         ');
+      const e2subs =  [
+        '               -^---!         ',
+        '               ----------^---!'
+      ];
+      const expected = '-----a--------(y|)';
+
+      const result = e1.pipe(audit(() =>  e2));
+
+      expectObservable(result).toBe(expected);
+      expectSubscriptions(e1.subscriptions).toBe(e1subs);
+      expectSubscriptions(e2.subscriptions).toBe(e2subs);
+    });
   });
 });

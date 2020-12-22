@@ -85,11 +85,11 @@ describe('bindCallback', () => {
     });
 
     it('should set callback function context to context of returned function', () => {
-      function callback(this: any, cb: Function) {
+      function callback(this: any, cb: (arg: number) => void) {
         cb(this.datum);
       }
 
-      const boundCallback = bindCallback<number>(callback);
+      const boundCallback = bindCallback(callback);
       const results: Array<string|number> = [];
 
       boundCallback.apply({datum: 5})
@@ -168,11 +168,11 @@ describe('bindCallback', () => {
     });
 
     it('should set callback function context to context of returned function', () => {
-      function callback(this: { datum: number }, cb: Function) {
+      function callback(this: { datum: number }, cb: (num: number) => void) {
         cb(this.datum);
       }
 
-      const boundCallback = bindCallback<number>(callback, rxTestScheduler);
+      const boundCallback = bindCallback(callback, rxTestScheduler);
       const results: Array<string|number> = [];
 
       boundCallback.apply({ datum: 5 })
@@ -256,42 +256,42 @@ describe('bindCallback', () => {
     expect(results2).to.deep.equal([42, 'done']);
   });
 
-  it('should not even call the callbackFn if immediately unsubscribed', () => {
-      let calls = 0;
-      function callback(datum: number, cb: Function) {
-        calls++;
-        cb(datum);
-      }
-      const boundCallback = bindCallback(callback, rxTestScheduler);
-      const results1: Array<number|string> = [];
+  it('should not even call the callbackFn if scheduled and immediately unsubscribed', () => {
+    let calls = 0;
+    function callback(datum: number, cb: Function) {
+      calls++;
+      cb(datum);
+    }
+    const boundCallback = bindCallback(callback, rxTestScheduler);
+    const results1: Array<number|string> = [];
 
-      const source = boundCallback(42);
+    const source = boundCallback(42);
 
-      const subscription = source.subscribe((x: any) => {
-        results1.push(x);
-      }, null, () => {
-        results1.push('done');
-      });
-
-      subscription.unsubscribe();
-
-      rxTestScheduler.flush();
-
-      expect(calls).to.equal(0);
+    const subscription = source.subscribe((x: any) => {
+      results1.push(x);
+    }, null, () => {
+      results1.push('done');
     });
-  });
 
-  it('should not swallow post-callback errors', () => {
+    subscription.unsubscribe();
+
+    rxTestScheduler.flush();
+
+    expect(calls).to.equal(0);
+  });
+});
+
+  it('should emit post-callback errors', () => {
     function badFunction(callback: (answer: number) => void): void {
       callback(42);
-      throw new Error('kaboom');
+      throw 'kaboom';
     }
-    const consoleStub = sinon.stub(console, 'warn');
-    try {
-      bindCallback(badFunction)().subscribe();
-      expect(consoleStub).to.have.property('called', true);
-    } finally {
-      consoleStub.restore();
-    }
+    let receivedError: any;
+
+    bindCallback(badFunction)().subscribe({
+      error: err => receivedError = err
+    });
+
+    expect(receivedError).to.equal('kaboom');
   });
 });

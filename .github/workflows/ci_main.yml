@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [ '11', '12', '13', '14' ]
+        node: [ '11', '12', '13', '14', '15' ]
 
     name: Node ${{ matrix.node }} build
 
@@ -35,4 +35,7 @@ jobs:
       run: npm run dtslint
     - name: api_guardian
       run: npm run api_guardian
+    - name: import
+      if: ${{ matrix.node == '14' }}
+      run: npm run test:import
 

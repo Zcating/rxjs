@@ -7,7 +7,7 @@ const root: any = (typeof globalThis !== 'undefined' && globalThis)
   || (typeof self !== 'undefined' && self)
   || global;
 
-/** @test {webSocket} */
+/** @test {webSocket}  */
 describe('webSocket', () => {
   let __ws: any;
 
@@ -166,6 +166,32 @@ describe('webSocket', () => {
       const socket = MockWebSocket.lastSocket;
       sinon.spy(socket, 'close');
       socket.open();
+
+      expect(socket.close).have.been.called;
+      expect(socket.readyState).to.equal(3); // closed
+
+      (<any>socket.close).restore();
+    });
+
+    it('should close the socket when unsubscribed while connecting', () => {
+      const subject = webSocket<string>('ws://mysocket');
+      subject.subscribe();
+      const socket = MockWebSocket.lastSocket;
+      sinon.spy(socket, 'close');
+      subject.unsubscribe();
+
+      expect(socket.close).have.been.called;
+      expect(socket.readyState).to.equal(3); // closed
+
+      (<any>socket.close).restore();
+    });
+
+    it('should close the socket when subscription is cancelled while connecting', () => {
+      const subject = webSocket<string>('ws://mysocket');
+      const subscription = subject.subscribe();
+      const socket = MockWebSocket.lastSocket;
+      sinon.spy(socket, 'close');
+      subscription.unsubscribe();
 
       expect(socket.close).have.been.called;
       expect(socket.readyState).to.equal(3); // closed
@@ -668,14 +694,11 @@ describe('webSocket', () => {
   });
 
   describe('node constructor', () => {
-
     it('should send and receive messages', () => {
       let messageReceived = false;
       const subject = webSocket<string>(<any>{
         url: 'ws://mysocket',
-        WebSocketCtor: (url: string, protocol: string): MockWebSocket => {
-          return new MockWebSocket(url, protocol);
-        }
+        WebSocketCtor: MockWebSocket
       });
 
       subject.next('ping');

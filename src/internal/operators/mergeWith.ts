@@ -1,71 +1,31 @@
-import { merge as mergeStatic } from '../observable/merge';
-import { Observable } from '../Observable';
-import { ObservableInput, OperatorFunction, MonoTypeOperatorFunction, SchedulerLike, ObservedValueUnionFromArray } from '../types';
-import { stankyLift } from '../util/lift';
+/** @prettier */
+import { ObservableInput, ObservableInputTuple, OperatorFunction, SchedulerLike } from '../types';
+import { operate } from '../util/lift';
+import { argsOrArgArray } from '../util/argsOrArgArray';
+import { internalFromArray } from '../observable/fromArray';
+import { mergeAll } from './mergeAll';
+import { popNumber, popScheduler } from '../util/args';
 
-/* tslint:disable:max-line-length */
+/** @deprecated use {@link mergeWith} or static {@link merge} */
+export function merge<T, A extends unknown[]>(...args: [...ObservableInputTuple<A>]): OperatorFunction<T, T | A[number]>;
+/** @deprecated use {@link mergeWith} or static {@link merge} */
+export function merge<T, A extends unknown[]>(...args: [...ObservableInputTuple<A>, number?]): OperatorFunction<T, T | A[number]>;
+/** @deprecated use {@link mergeWith} or static {@link merge} */
+export function merge<T, A extends unknown[]>(...args: [...ObservableInputTuple<A>, SchedulerLike?]): OperatorFunction<T, T | A[number]>;
+/** @deprecated use {@link mergeWith} or static {@link merge} */
+export function merge<T, A extends unknown[]>(
+  ...args: [...ObservableInputTuple<A>, number?, SchedulerLike?]
+): OperatorFunction<T, T | A[number]>;
 
-/** @deprecated use {@link mergeWith} */
-export function merge<T>(): MonoTypeOperatorFunction<T>;
-/** @deprecated use {@link mergeWith} */
-export function merge<T, T2>(v2: ObservableInput<T2>, ): OperatorFunction<T, T | T2>;
-/** @deprecated use {@link mergeWith} */
-export function merge<T, T2, T3>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, ): OperatorFunction<T, T | T2 | T3>;
-/** @deprecated use {@link mergeWith} */
-export function merge<T, T2, T3, T4>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, ): OperatorFunction<T, T | T2 | T3 | T4>;
-/** @deprecated use {@link mergeWith} */
-export function merge<T, T2, T3, T4, T5>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, v5: ObservableInput<T5>, ): OperatorFunction<T, T | T2 | T3 | T4 | T5>;
-/** @deprecated use {@link mergeWith} */
-export function merge<T, T2, T3, T4, T5, T6>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, v5: ObservableInput<T5>, v6: ObservableInput<T6>, ): OperatorFunction<T, T | T2 | T3 | T4 | T5 | T6>;
+export function merge<T>(...args: unknown[]): OperatorFunction<T, unknown> {
+  const scheduler = popScheduler(args);
+  const concurrent = popNumber(args, Infinity);
+  args = argsOrArgArray(args);
 
-// Below are signatures we no longer wish to support in this format.
-// They include either a concurrency argument or a scheduler argument.
-// For these, users should use the merge static, and in fact
-// for scheduling, they should compose that behavior with fromScheduled
-// and observeOn, etc.
-
-/** @deprecated use static {@link merge} */
-export function merge<T>(scheduler: SchedulerLike): MonoTypeOperatorFunction<T>;
-/** @deprecated use static {@link merge} */
-export function merge<T>(concurrent: number, scheduler?: SchedulerLike): MonoTypeOperatorFunction<T>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2>(v2: ObservableInput<T2>, scheduler: SchedulerLike): OperatorFunction<T, T | T2>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2>(v2: ObservableInput<T2>, concurrent: number, scheduler?: SchedulerLike): OperatorFunction<T, T | T2>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2, T3>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, scheduler: SchedulerLike): OperatorFunction<T, T | T2 | T3>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2, T3>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, concurrent: number, scheduler?: SchedulerLike): OperatorFunction<T, T | T2 | T3>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2, T3, T4>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, scheduler: SchedulerLike): OperatorFunction<T, T | T2 | T3 | T4>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2, T3, T4>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, concurrent: number, scheduler?: SchedulerLike): OperatorFunction<T, T | T2 | T3 | T4>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2, T3, T4, T5>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, v5: ObservableInput<T5>, scheduler: SchedulerLike): OperatorFunction<T, T | T2 | T3 | T4 | T5>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2, T3, T4, T5>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, v5: ObservableInput<T5>, concurrent: number, scheduler?: SchedulerLike): OperatorFunction<T, T | T2 | T3 | T4 | T5>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2, T3, T4, T5, T6>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, v5: ObservableInput<T5>, v6: ObservableInput<T6>, scheduler: SchedulerLike): OperatorFunction<T, T | T2 | T3 | T4 | T5 | T6>;
-/** @deprecated use static {@link merge} */
-export function merge<T, T2, T3, T4, T5, T6>(v2: ObservableInput<T2>, v3: ObservableInput<T3>, v4: ObservableInput<T4>, v5: ObservableInput<T5>, v6: ObservableInput<T6>, concurrent: number, scheduler?: SchedulerLike): OperatorFunction<T, T | T2 | T3 | T4 | T5 | T6>;
-/** @deprecated use static {@link merge} */
-export function merge<T>(...observables: Array<ObservableInput<T> | SchedulerLike | number>): MonoTypeOperatorFunction<T>;
-/** @deprecated use static {@link merge} */
-export function merge<T, R>(...observables: Array<ObservableInput<any> | SchedulerLike | number>): OperatorFunction<T, R>;
-/* tslint:enable:max-line-length */
-
-/**
- * @deprecated use {@link mergeWith} or static {@link merge}
- */
-export function merge<T, R>(...observables: Array<ObservableInput<any> | SchedulerLike | number | undefined>): OperatorFunction<T, R> {
-  return (source: Observable<T>) => stankyLift(
-    source,
-    mergeStatic(source, ...(observables as any[]))
-  );
+  return operate((source, subscriber) => {
+    mergeAll(concurrent)(internalFromArray([source, ...(args as ObservableInput<T>[])], scheduler)).subscribe(subscriber as any);
+  });
 }
-
-export function mergeWith<T>(): OperatorFunction<T, T>;
-export function mergeWith<T, A extends ObservableInput<any>[]>(...otherSources: A): OperatorFunction<T, (T | ObservedValueUnionFromArray<A>)>;
 
 /**
  * Merge the values from all observables to an single observable result.
@@ -106,6 +66,8 @@ export function mergeWith<T, A extends ObservableInput<any>[]>(...otherSources: 
  * ```
  * @param otherSources the sources to combine the current source with.
  */
-export function mergeWith<T, A extends ObservableInput<any>[]>(...otherSources: A): OperatorFunction<T, (T | ObservedValueUnionFromArray<A>)> {
+export function mergeWith<T, A extends readonly unknown[]>(
+  ...otherSources: [...ObservableInputTuple<A>]
+): OperatorFunction<T, T | A[number]> {
   return merge(...otherSources);
 }

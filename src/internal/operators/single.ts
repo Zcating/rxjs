@@ -1,13 +1,16 @@
+/** @prettier */
 import { Observable } from '../Observable';
-import { Subscriber } from '../Subscriber';
 import { EmptyError } from '../util/EmptyError';
 
-import { MonoTypeOperatorFunction } from '../types';
+import { MonoTypeOperatorFunction, OperatorFunction, TruthyTypesOf } from '../types';
 import { SequenceError } from '../util/SequenceError';
 import { NotFoundError } from '../util/NotFoundError';
-import { lift } from '../util/lift';
+import { operate } from '../util/lift';
+import { OperatorSubscriber } from './OperatorSubscriber';
 
-const defaultPredicate = () => true;
+export function single<T>(predicate: BooleanConstructor): OperatorFunction<T, TruthyTypesOf<T>>;
+export function single<T>(predicate: (value: T, index: number, source: Observable<T>) => false): OperatorFunction<T, never>;
+export function single<T>(predicate?: (value: T, index: number, source: Observable<T>) => boolean): MonoTypeOperatorFunction<T>;
 
 /**
  * Returns an observable that asserts that only one value is
@@ -89,48 +92,33 @@ const defaultPredicate = () => true;
  * @return {Observable<T>} An Observable that emits the single item emitted by the source Observable that matches
  * the predicate or `undefined` when no items match.
  */
-export function single<T>(
-  predicate: (value: T, index: number, source: Observable<T>) => boolean = defaultPredicate
-): MonoTypeOperatorFunction<T> {
-  return (source: Observable<T>) => lift(source, singleOperator(predicate));
-}
-
-function singleOperator<T>(predicate: (value: T, index: number, source: Observable<T>) => boolean) {
-  return function(this: Subscriber<T>, source: Observable<T>) {
-    let _hasValue = false;
-    let _seenValue = false;
-    let _value: T;
-    let _i = 0;
-    const _destination = this;
-
-    return source.subscribe({
-      next: value => {
-        _seenValue = true;
-        let match = false;
-        try {
-          match = predicate(value, _i++, source);
-        } catch (err) {
-          _destination.error(err);
-          return;
-        }
-        if (match) {
-          if (_hasValue) {
-            _destination.error(new SequenceError('Too many matching values'));
+export function single<T>(predicate?: (value: T, index: number, source: Observable<T>) => boolean): MonoTypeOperatorFunction<T> {
+  return operate((source, subscriber) => {
+    let hasValue = false;
+    let singleValue: T;
+    let seenValue = false;
+    let index = 0;
+    source.subscribe(
+      new OperatorSubscriber(
+        subscriber,
+        (value) => {
+          seenValue = true;
+          if (!predicate || predicate(value, index++, source)) {
+            hasValue && subscriber.error(new SequenceError('Too many matching values'));
+            hasValue = true;
+            singleValue = value;
+          }
+        },
+        undefined,
+        () => {
+          if (hasValue) {
+            subscriber.next(singleValue);
+            subscriber.complete();
           } else {
-            _hasValue = true;
-            _value = value;
+            subscriber.error(seenValue ? new NotFoundError('No matching values') : new EmptyError());
           }
         }
-      },
-      error: err => _destination.error(err),
-      complete: () => {
-        if (_hasValue) {
-          _destination.next(_value);
-          _destination.complete();
-        } else {
-          _destination.error(_seenValue ? new NotFoundError('No matching values') : new EmptyError());
-        }
-      },
-    });
-  };
+      )
+    );
+  });
 }

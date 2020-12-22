@@ -585,44 +585,16 @@ describe('Observable', () => {
       });
     });
 
-    describe('config.useDeprecatedSynchronousErrorHandling', () => {
-      it('should log when it is set and unset', () => {
-        const _log = console.log;
-        const logCalledWith: any[][] = [];
-        console.log = (...args: any[]) => {
-          logCalledWith.push(args);
-        };
-
-        const _warn = console.warn;
-        const warnCalledWith: any[][] = [];
-        console.warn = (...args: any[]) => {
-          warnCalledWith.push(args);
-        };
-
-        config.useDeprecatedSynchronousErrorHandling = true;
-        expect(warnCalledWith.length).to.equal(1);
-
-        config.useDeprecatedSynchronousErrorHandling = false;
-        expect(logCalledWith.length).to.equal(1);
-
-        console.log = _log;
-        console.warn = _warn;
-      });
-    });
-
     describe('if config.useDeprecatedSynchronousErrorHandling === true', () => {
       beforeEach(() => {
-        const _warn = console.warn;
-        console.warn = noop;
         config.useDeprecatedSynchronousErrorHandling = true;
-        console.warn = _warn;
       });
 
       it('should throw synchronously', () => {
-        expect(() => throwError(new Error()).subscribe()).to.throw();
+        expect(() => throwError(new Error('thrown error')).subscribe()).to.throw(Error, 'thrown error');
       });
 
-      it('should rethrow if sink has syncErrorThrowable = false', () => {
+      it('should rethrow if next handler throws', () => {
         const observable = new Observable((observer) => {
           observer.next(1);
         });
@@ -637,10 +609,7 @@ describe('Observable', () => {
       });
 
       afterEach(() => {
-        const _log = console.log;
-        console.log = noop;
         config.useDeprecatedSynchronousErrorHandling = false;
-        console.log = _log;
       });
     });
   });
@@ -995,19 +964,22 @@ describe('Observable.lift', () => {
     );
   });
 
-  it('should not swallow internal errors', () => {
-    const consoleStub = sinon.stub(console, 'warn');
-    try {
-      let source = new Observable<number>((observer) => observer.next(42));
-      for (let i = 0; i < 10000; ++i) {
-        let base = source;
-        source = new Observable<number>((observer) => base.subscribe(observer));
+  it('should not swallow internal errors', (done) => {
+    config.onStoppedNotification = (notification) => {
+      expect(notification.kind).to.equal('E');
+      expect(notification).to.have.property('error', 'bad');
+      config.onStoppedNotification = null;
+      done();
+    };
+
+    new Observable(subscriber => {
+      subscriber.error('test');
+      throw 'bad';
+    }).subscribe({
+      error: err => {
+        expect(err).to.equal('test');
       }
-      source.subscribe();
-      expect(consoleStub).to.have.property('called', true);
-    } finally {
-      consoleStub.restore();
-    }
+    });
   });
 
   // TODO: Stop skipping this until a later refactor (probably in version 8)

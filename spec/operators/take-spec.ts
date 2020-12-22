@@ -1,36 +1,15 @@
 import { expect } from 'chai';
 import { take, mergeMap } from 'rxjs/operators';
-import { range, ArgumentOutOfRangeError, of, Observable, Subject } from 'rxjs';
+import { of, Observable, Subject } from 'rxjs';
 import { TestScheduler } from 'rxjs/testing';
 import { observableMatcher } from '../helpers/observableMatcher';
 
 /** @test {take} */
-describe('take operator', () => {
+describe('take', () => {
   let testScheduler: TestScheduler;
 
   beforeEach(() => {
     testScheduler = new TestScheduler(observableMatcher);
-  });
-
-  it('should error when a non-number is passed to it, or when no argument is passed (Non-TS case)', () => {
-    expect(() => {
-      of(1, 2, 3).pipe(
-        (take as any)()
-      );
-    }).to.throw(TypeError, `'count' is not a number`);
-
-    expect(() => {
-      of(1, 2, 3).pipe(
-        (take as any)('banana')
-      );
-    }).to.throw(TypeError, `'count' is not a number`);
-
-    // Standard type coersion behavior in JS.
-    expect(() => {
-      of(1, 2, 3).pipe(
-        (take as any)('1')
-      );
-    }).not.to.throw();
   });
 
   it('should take two values of an observable with many values', () => {
@@ -73,6 +52,17 @@ describe('take operator', () => {
       const expected = '   |';
 
       expectObservable(e1.pipe(take(0))).toBe(expected);
+      expectSubscriptions(e1.subscriptions).toBe(e1subs);
+    });
+  });
+
+  it('should be empty if provided with negative value', () => {
+    testScheduler.run(({ cold, expectObservable, expectSubscriptions }) => {
+      const e1 = cold(' --a-----b----c---d--|');
+      const expected = '|';
+      const e1subs: string[] = []; // Don't subscribe at all
+
+      expectObservable(e1.pipe(take(-42))).toBe(expected);
       expectSubscriptions(e1.subscriptions).toBe(e1subs);
     });
   });
@@ -155,11 +145,6 @@ describe('take operator', () => {
     });
   });
 
-  it('should throw if total is less than zero', () => {
-    expect(() => { range(0, 10).pipe(take(-1)); })
-      .to.throw(ArgumentOutOfRangeError);
-  });
-
   it('should not break unsubscription chain when unsubscribed explicitly', () => {
     testScheduler.run(({ hot, expectObservable, expectSubscriptions }) => {
       const e1 = hot('---^--a--b-----c--d--e--|');
@@ -219,5 +204,16 @@ describe('take operator', () => {
     ).subscribe(() => { /* noop */ });
 
     expect(sideEffects).to.deep.equal([0, 1, 2]);
+  });
+
+  it('should complete even if the parameter is a string', () => {
+    testScheduler.run(({ cold, expectObservable, expectSubscriptions }) => {
+      const e1 = cold(' --a-----b----c---d--|');
+      const e1subs = '  ^-------!------------';
+      const expected = '--a-----(b|)         ';
+
+      expectObservable(e1.pipe(take("2" as any))).toBe(expected);
+      expectSubscriptions(e1.subscriptions).toBe(e1subs);
+    });
   });
 });

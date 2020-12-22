@@ -1,11 +1,10 @@
-import { Operator } from '../Operator';
+/** @prettier */
 import { Subscriber } from '../Subscriber';
-import { Observable } from '../Observable';
-import { Subscription } from '../Subscription';
-import { MonoTypeOperatorFunction, SubscribableOrPromise, TeardownLogic } from '../types';
+import { MonoTypeOperatorFunction, ObservableInput } from '../types';
 
-import { lift } from '../util/lift';
-import { SimpleOuterSubscriber, SimpleInnerSubscriber, innerSubscribe } from '../innerSubscribe';
+import { operate } from '../util/lift';
+import { innerFrom } from '../observable/from';
+import { OperatorSubscriber } from './OperatorSubscriber';
 
 /**
  * Ignores source values for a duration determined by another Observable, then
@@ -24,7 +23,7 @@ import { SimpleOuterSubscriber, SimpleInnerSubscriber, innerSubscribe } from '..
  * Initially, the timer is disabled. As soon as the first source value arrives,
  * the timer is enabled by calling the `durationSelector` function with the
  * source value, which returns the "duration" Observable. When the duration
- * Observable emits a value or completes, the timer is disabled, then the most
+ * Observable emits a value, the timer is disabled, then the most
  * recent source value is emitted on the output Observable, and this process
  * repeats for the next source value.
  *
@@ -45,83 +44,54 @@ import { SimpleOuterSubscriber, SimpleInnerSubscriber, innerSubscribe } from '..
  * @see {@link sample}
  * @see {@link throttle}
  *
- * @param {function(value: T): SubscribableOrPromise} durationSelector A function
+ * @param durationSelector A function
  * that receives a value from the source Observable, for computing the silencing
  * duration, returned as an Observable or a Promise.
- * @return {Observable<T>} An Observable that performs rate-limiting of
+ * @return An Observable that performs rate-limiting of
  * emissions from the source Observable.
- * @name audit
  */
-export function audit<T>(durationSelector: (value: T) => SubscribableOrPromise<any>): MonoTypeOperatorFunction<T> {
-  return function auditOperatorFunction(source: Observable<T>) {
-    return lift(source, new AuditOperator(durationSelector));
-  };
-}
+export function audit<T>(durationSelector: (value: T) => ObservableInput<any>): MonoTypeOperatorFunction<T> {
+  return operate((source, subscriber) => {
+    let hasValue = false;
+    let lastValue: T | null = null;
+    let durationSubscriber: Subscriber<any> | null = null;
+    let isComplete = false;
 
-class AuditOperator<T> implements Operator<T, T> {
-  constructor(private durationSelector: (value: T) => SubscribableOrPromise<any>) {
-  }
-
-  call(subscriber: Subscriber<T>, source: any): TeardownLogic {
-    return source.subscribe(new AuditSubscriber<T, T>(subscriber, this.durationSelector));
-  }
-}
-
-/**
- * We need this JSDoc comment for affecting ESDoc.
- * @ignore
- * @extends {Ignored}
- */
-class AuditSubscriber<T, R> extends SimpleOuterSubscriber<T, R> {
-
-  private value: T | null = null;
-  private hasValue: boolean = false;
-  private throttled: Subscription | null = null;
-
-  constructor(destination: Subscriber<T>,
-              private durationSelector: (value: T) => SubscribableOrPromise<any>) {
-    super(destination);
-  }
-
-  protected _next(value: T): void {
-    this.value = value;
-    this.hasValue = true;
-    if (!this.throttled) {
-      let duration;
-      try {
-        const { durationSelector } = this;
-        duration = durationSelector(value);
-      } catch (err) {
-        return this.destination.error(err);
+    const endDuration = () => {
+      durationSubscriber?.unsubscribe();
+      durationSubscriber = null;
+      if (hasValue) {
+        hasValue = false;
+        const value = lastValue!;
+        lastValue = null;
+        subscriber.next(value);
       }
-      const innerSubscription = innerSubscribe(duration, new SimpleInnerSubscriber(this));
-      if (!innerSubscription || innerSubscription.closed) {
-        this.clearThrottle();
-      } else {
-        this.add(this.throttled = innerSubscription);
-      }
-    }
-  }
+      isComplete && subscriber.complete();
+    };
 
-  clearThrottle() {
-    const { value, hasValue, throttled } = this;
-    if (throttled) {
-      this.remove(throttled);
-      this.throttled = null;
-      throttled.unsubscribe();
-    }
-    if (hasValue) {
-      this.value = null;
-      this.hasValue = false;
-      this.destination.next(value);
-    }
-  }
+    const cleanupDuration = () => {
+      durationSubscriber = null;
+      isComplete && subscriber.complete();
+    };
 
-  notifyNext(): void {
-    this.clearThrottle();
-  }
-
-  notifyComplete(): void {
-    this.clearThrottle();
-  }
+    source.subscribe(
+      new OperatorSubscriber(
+        subscriber,
+        (value) => {
+          hasValue = true;
+          lastValue = value;
+          if (!durationSubscriber) {
+            innerFrom(durationSelector(value)).subscribe(
+              (durationSubscriber = new OperatorSubscriber(subscriber, endDuration, undefined, cleanupDuration))
+            );
+          }
+        },
+        undefined,
+        () => {
+          isComplete = true;
+          (!hasValue || !durationSubscriber || durationSubscriber.closed) && subscriber.complete();
+        }
+      )
+    );
+  });
 }
